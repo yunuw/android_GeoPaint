@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Geo-Paint</string>
+    <string name="title_activity_maps">Geo-Paint</string>
+    <string name="google_api_key">AIzaSyCNVylwf7wZ2KVIRh5kJBCeLsKb5d_zuiQ</string>
+    <string name="default_pen_size">18</string>
+    <string name="defaul_file_name">My drawings</string>
+</resources>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <EditTextPreference android:key="pref_pen_size"
+        android:title="Polyline size"
+        android:defaultValue="@string/default_pen_size"
+        />
+
+    <EditTextPreference android:key="pref_file_name"
+        android:title="File name"
+        android:defaultValue="@string/defaul_file_name"
+        />
+
+</PreferenceScreen>
