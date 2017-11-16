@@ -94,7 +94,7 @@ public class MapSavingService extends IntentService{
                         mHandler.post(new Runnable() {
                             @Override
                             public void run() {
-                                Toast.makeText(MapSavingService.this, content, Toast.LENGTH_SHORT).show();
+                                //Toast.makeText(MapSavingService.this, content, Toast.LENGTH_SHORT).show();
                             }
                         });
                     } catch (IOException ioe) {
