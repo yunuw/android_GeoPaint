@@ -1,17 +1,22 @@
 package edu.uw.yw239.geopaint;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.location.Location;
+import android.net.Uri;
+import android.os.Environment;
 import android.preference.PreferenceManager;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.ActivityCompat;
 import android.os.Bundle;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.view.MenuItemCompat;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.ShareActionProvider;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -35,12 +40,19 @@ import com.google.android.gms.maps.model.PolylineOptions;
 import org.xdty.preference.colorpicker.ColorPickerDialog;
 import org.xdty.preference.colorpicker.ColorPickerSwatch;
 
+import java.io.File;
 import java.util.LinkedList;
 import java.util.List;
 
 public class MapsActivity extends AppCompatActivity implements OnMapReadyCallback, GoogleApiClient.ConnectionCallbacks,
         GoogleApiClient.OnConnectionFailedListener, LocationListener,
-        SharedPreferences.OnSharedPreferenceChangeListener{
+        SharedPreferences.OnSharedPreferenceChangeListener {
+
+    private static final String[] RequiredPermissions = new String[] {
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE    };
+
+    public Activity thisActivity = MapsActivity.this;
 
     private GoogleMap mMap;
     private LocationRequest mLocationRequest;
@@ -53,8 +65,11 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
     private boolean isPenUp;
     private Float size;
     private int curColor = -1;
+    private String fileName;
+    private File file;
 
     private static final int LOCATION_REQUEST_CODE = 1;
+    private static final int PERMISSION_REQUEST_CODE = 10;
 
     public static final String ACTIVITY_NAME = "maps activity";
 
@@ -66,12 +81,57 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
     public static final String PREF_FILE_NAME = "pref_file_name";
 
+    public static final String DEFAULT_FILE_NAME = "myDrawings";
+
+    public static final String CREATE_NEW_FILE = "create_new_file";
+
+    public static final String UPDATE_FILE_KEY = "update_file_key";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_maps);
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
+
+        // set the status of the pen
+        isPenUp = true;
+        PreferenceManager.getDefaultSharedPreferences(this).registerOnSharedPreferenceChangeListener(this);
+
+        // get the value of size form sharedPreference
+        SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(this);
+        size = Float.valueOf(sharedPref.getString(PREF_PEN_SIZE, DEFAULT_SIZE));
+        fileName = sharedPref.getString(PREF_FILE_NAME, DEFAULT_FILE_NAME);
+
+        if(isAllPermissionGranted()) {
+            Initialize();
+        }
+        else { //if we're missing permission.
+            askForPermission();
+        }
+    }
+
+    private boolean isAllPermissionGranted() {
+        for (String permission : RequiredPermissions) {
+            if (ContextCompat.checkSelfPermission(MapsActivity.this, permission) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void askForPermission() {
+        for (String permission : RequiredPermissions) {
+            if (ContextCompat.checkSelfPermission(MapsActivity.this, permission) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(MapsActivity.this, new String[] { permission }, PERMISSION_REQUEST_CODE);
+                return;
+            }
+        }
+    }
+
+    private void Initialize() {
+        Toast.makeText(this, getResources().getString(R.string.file_location_notification) + " " + fileName, Toast.LENGTH_LONG).show();
+
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
@@ -83,27 +143,26 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
                     .addApi(LocationServices.API)
                     .build();
         }
+        mGoogleApiClient.connect();
 
-        // set the status of the pen
-        isPenUp = true;
-
-        // get the value of size form sharedPreference
-        SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(this);
-        size = Float.valueOf(sharedPref.getString(PREF_PEN_SIZE, DEFAULT_SIZE));
-
-        PreferenceManager.getDefaultSharedPreferences(this).registerOnSharedPreferenceChangeListener(this);
+        // instantiate the file that is saved privately on external storage
+        //file = new File(getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), MapsActivity.DEFAULT_FILE_NAME + ".geojson");
     }
 
     @Override
     protected void onStart() {
-        mGoogleApiClient.connect();
+        if (mGoogleApiClient != null) {
+            mGoogleApiClient.connect();
+        }
 
         super.onStart();
     }
 
     @Override
     protected void onStop() {
-        mGoogleApiClient.disconnect();
+        if (mGoogleApiClient != null) {
+            mGoogleApiClient.disconnect();
+        }
         super.onStop();
     }
 
@@ -128,6 +187,17 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
             menu.findItem(R.id.pen_status_to_raise).setVisible(true);
         }
 
+        // set up the share intent
+        MenuItem item = menu.findItem(R.id.menu_item_share);
+        ShareActionProvider shareProvider = (ShareActionProvider) MenuItemCompat.getActionProvider(item);
+        Intent myShareIntent = new Intent(Intent.ACTION_SEND);
+        myShareIntent.setType("text/plain");
+
+        String filePath = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) + "/" + fileName + ".geojson";
+        Uri fileUri = Uri.fromFile(new File(filePath));
+        myShareIntent.putExtra(Intent.EXTRA_STREAM, fileUri);
+        shareProvider.setShareIntent(myShareIntent);
+
         return super.onPrepareOptionsMenu(menu);
     }
 
@@ -136,23 +206,20 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
         switch(item.getItemId()){
             case R.id.pen_status_to_raise:
-
                 // set the status of the pen to up
                 isPenUp = true;
 
                 break;
 
             case R.id.pen_status_to_lower:
-
                 // set the status of the pen to down and instantiate a new Polyline for the current polyline
                 isPenUp = false;
-                listOfPolylines.add(curPolyline);
                 curPolyline = mMap.addPolyline(new PolylineOptions().width(size).color(curColor));
+                listOfPolylines.add(curPolyline);
 
                 break;
 
             case R.id.settings:
-                
                 Intent intent = new Intent(MapsActivity.this, SettingsActivity.class);
                 intent.putExtra(SettingsActivity.PARENT_ACTIVITY_KEY, ACTIVITY_NAME);
                 startActivity(intent);
@@ -160,7 +227,6 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
                 break;
             
             case R.id.pen_color:
-                // TODO: 11/12/17 chose color
                 pickColor(item);
                 break;
 
@@ -197,8 +263,8 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
                     curColor = color;
 
                     // add the current polyline to the list and instantiate a new polyline
-                    listOfPolylines.add(curPolyline);
                     curPolyline = mMap.addPolyline(new PolylineOptions().color(curColor).width(size));
+                    listOfPolylines.add(curPolyline);
 
                     // add the current
                     SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(MapsActivity.this);
@@ -227,19 +293,30 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
     @Override
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
+        mMap.setOnMyLocationButtonClickListener(new GoogleMap.OnMyLocationButtonClickListener(){
+            @Override
+            public boolean onMyLocationButtonClick()
+            {
+                if (mLocation != null) {
+                    mMap.moveCamera(CameraUpdateFactory.newLatLng(
+                          new LatLng(mLocation.getLatitude(), mLocation.getLongitude())));
+                }
+                return true;
+            }
+        });
 
         // instantiate the current location
         curPolyline = mMap.addPolyline(new PolylineOptions().width(size).color(curColor));
+        listOfPolylines.add(curPolyline);
 
         // Set some UI settings
         UiSettings mSetting = mMap.getUiSettings();
         mSetting.setCompassEnabled(true);
         mSetting.setZoomControlsEnabled(true);
 
-        // Add a marker in Sydney and move the camera
-        LatLng UW = new LatLng(37.35, -122.0);
+        LatLng UW = new LatLng(47.6553, -122.3078);
         //mMap.addMarker(new MarkerOptions().position(sydney).title("Marker in Sydney"));
-        //mMap.moveCamera(CameraUpdateFactory.newLatLng(UW));
+        mMap.moveCamera(CameraUpdateFactory.newLatLng(UW));
     }
 
     @Override
@@ -249,7 +326,7 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
         mLocationRequest = new LocationRequest();
         mLocationRequest.setInterval(10000);
-        mLocationRequest.setFastestInterval(5000);
+        mLocationRequest.setFastestInterval(1000);
         mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
 
         permissionCheck = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION);
@@ -290,6 +367,8 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
     @Override
     public void onLocationChanged(Location location) {
+        mLocation = location;
+
         // get the lat and lng of the current location
         LatLng curLocation = new LatLng(location.getLatitude(), location.getLongitude());
 
@@ -300,6 +379,15 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
             List<LatLng> listOfPositions = curPolyline.getPoints();
             listOfPositions.add(curLocation);
             curPolyline.setPoints(listOfPositions);
+
+            // parse the list to string
+            String strToSave = GeoJsonConverter.convertToGeoJson(listOfPolylines);
+            Intent intent = new Intent(MapsActivity.this, MapSavingService.class);
+            String[] nameAndContent = new String[2];
+            nameAndContent[0] = fileName;
+            nameAndContent[1] = strToSave;
+            intent.putExtra(UPDATE_FILE_KEY, nameAndContent);
+            startService(intent);
         }
 
         // move the map marker to the current location
@@ -314,6 +402,25 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
                 if(grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED){
                     onConnected(null);
                 }
+            }
+            case MapSavingService.WRITE_REQUEST_CODE:{ //if asked for write
+                if(grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED){
+                    onLocationChanged(mLocation);
+                }
+            }
+            case PERMISSION_REQUEST_CODE: {
+                if (grantResults.length > 0
+                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    if (isAllPermissionGranted()) {
+                        Initialize();
+                    } else {
+                        askForPermission();
+                    }
+                } else if (grantResults.length > 0
+                        && grantResults[0] == PackageManager.PERMISSION_DENIED) {
+                    finish();
+                }
+                return;
             }
             default:
                 super.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -331,15 +438,38 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
             if (mMap != null && newSize != size) {
                 size = newSize;
 
-                listOfPolylines.add(curPolyline);
                 curPolyline = mMap.addPolyline(new PolylineOptions().width(size).color(curColor));
+                listOfPolylines.add(curPolyline);
             }
         }
 
-        //// TODO: 11/13/17
         if(key.equals(PREF_FILE_NAME)){
             // file name has been changed, do something
+            SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(this);
+            String newName = sharedPref.getString(PREF_FILE_NAME, DEFAULT_FILE_NAME);
+
+            if(newName != fileName){
+                // save the current file and create a new file by using service
+                Intent intent = new Intent(MapsActivity.this, MapSavingService.class);
+                intent.putExtra(CREATE_NEW_FILE, newName);
+                startService(intent);
+
+                // change the current file name
+                fileName = newName;
+
+                // clear the content in the listOfPolylines and current polyline
+                curPolyline = mMap.addPolyline(new PolylineOptions().width(size).color(curColor));
+                listOfPolylines = new LinkedList<>();
+                listOfPolylines.add(curPolyline);
+
+                // if the pen is down add the new current polyline to the list
+                if(!isPenUp) {
+                    listOfPolylines.add(curPolyline);
+                }
+            }
 
         }
     }
+
+
 }
